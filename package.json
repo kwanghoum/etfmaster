@@ -1,0 +1,15 @@
+{
+  "name": "etfmaster",
+  "private": true,
+  "scripts": {
+    "dev": "concurrently -n backend,frontend -c blue,green \"npm run dev:backend\" \"npm run dev:frontend\"",
+    "dev:backend": "cd backend && uvicorn app.main:app --reload --port 8000",
+    "dev:frontend": "cd frontend && npm run dev",
+    "sync": "curl -X POST http://localhost:8000/api/admin/sync",
+    "db:delete": "rm -f backend/data/etfmaster.db && echo 'Database deleted. Restart the server to create a new one.'",
+    "db:reset": "npm run db:delete && echo 'Please restart the server (npm run dev) to sync data.'"
+  },
+  "devDependencies": {
+    "concurrently": "^9.0.0"
+  }
+}
