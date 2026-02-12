@@ -5,7 +5,7 @@ from datetime import datetime
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from pytz import timezone
 
-from app.config import PRICE_UPDATE_INTERVAL_HOURS, SYNC_HOUR, SYNC_MINUTE
+from app.config import SYNC_HOUR, SYNC_MINUTE
 from app.services.etf_sync_service import run_full_sync
 
 logger = logging.getLogger(__name__)
@@ -29,20 +29,11 @@ def start_scheduler():
         id="daily_full_sync",
         replace_existing=True,
     )
-    interval_job = scheduler.add_job(
-        _run_sync,
-        "interval",
-        hours=PRICE_UPDATE_INTERVAL_HOURS,
-        id="periodic_price_update",
-        replace_existing=True,
-    )
     scheduler.start()
 
     logger.info("Scheduler started (timezone: %s)", KST)
     logger.info("Daily full sync scheduled at %02d:%02d KST - Next run: %s",
                 SYNC_HOUR, SYNC_MINUTE, daily_job.next_run_time)
-    logger.info("Periodic price update every %d hours - Next run: %s",
-                PRICE_UPDATE_INTERVAL_HOURS, interval_job.next_run_time)
 
 
 def stop_scheduler():
