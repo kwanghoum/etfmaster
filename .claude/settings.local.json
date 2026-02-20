@@ -11,7 +11,9 @@
       "Bash(curl:*)",
       "Bash(sqlite3:*)",
       "Bash(lsof:*)",
-      "Bash(tail:*)"
+      "Bash(tail:*)",
+      "Bash(pip3 install:*)",
+      "Bash(pip show:*)"
     ]
   }
 }

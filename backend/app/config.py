@@ -1,6 +1,10 @@
 import os
 from pathlib import Path
 
+from dotenv import load_dotenv
+
+load_dotenv(Path(__file__).resolve().parent.parent.parent / ".env")
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = BASE_DIR / "data"
 DB_PATH = DATA_DIR / "etfmaster.db"
@@ -9,6 +13,7 @@ DB_PATH = DATA_DIR / "etfmaster.db"
 DATABASE_URL = os.getenv("DATABASE_URL", f"sqlite:///{DB_PATH}")
 
 ALPHA_VANTAGE_API_KEY = os.getenv("ALPHA_VANTAGE_API_KEY", "demo")
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 
 BATCH_SIZE = 100
 BATCH_DELAY_SECONDS = 1
