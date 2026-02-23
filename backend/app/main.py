@@ -50,7 +50,10 @@ async def lifespan(app: FastAPI):
                     needs_resync = True
                     reason = f"Data is {age.days}d {age.seconds//3600}h old (last update: {latest})"
 
-        if needs_resync:
+        skip = os.getenv("SKIP_STARTUP_SYNC", "false").lower() == "true"
+        if skip:
+            logger.info("SKIP_STARTUP_SYNC=true — skipping startup sync")
+        elif needs_resync:
             logger.info("Starting sync — reason: %s", reason)
             asyncio.ensure_future(run_full_sync())
         else:
