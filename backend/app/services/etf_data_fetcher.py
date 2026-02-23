@@ -1,4 +1,5 @@
 import logging
+import time
 from datetime import datetime, timedelta
 
 import yfinance as yf
@@ -17,6 +18,7 @@ def fetch_etf_batch(tickers: list[str]) -> list[dict]:
                 results.append(data)
         except Exception:
             logger.warning("Failed to fetch data for %s", ticker, exc_info=True)
+        time.sleep(0.3)  # 개별 ticker 간 딜레이 (429 방지)
     return results
 
 
@@ -109,7 +111,7 @@ def compute_returns(tickers: list[str]) -> dict[str, dict]:
 
     try:
         df = yf.download(tickers, start=start_5y.strftime("%Y-%m-%d"),
-                         end=end.strftime("%Y-%m-%d"), progress=False, threads=True)
+                         end=end.strftime("%Y-%m-%d"), progress=False, threads=False)
     except Exception:
         logger.exception("Bulk download failed")
         return {}
