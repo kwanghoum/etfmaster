@@ -28,6 +28,8 @@ def start_scheduler():
         minute=SYNC_MINUTE,
         id="daily_full_sync",
         replace_existing=True,
+        misfire_grace_time=3600,  # 1시간 이내 misfire는 실행
+        coalesce=True,            # 여러 번 misfire 시 한 번만 실행
     )
     scheduler.start()
 

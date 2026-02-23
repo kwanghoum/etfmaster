@@ -23,22 +23,38 @@ async def lifespan(app: FastAPI):
     # DB가 비어있거나 스키마 변경 후 재sync 필요 시 자동 실행
     db = SessionLocal()
     try:
+        from datetime import datetime, timedelta, timezone
+
         from app.models.etf import ETF
         count = db.query(ETF).count()
 
-        # ex_dividend_date 필드가 없는 데이터가 있으면 재sync
         needs_resync = False
-        if count > 0:
-            sample = db.query(ETF).first()
-            if not hasattr(sample, 'ex_dividend_date'):
-                logger.info("Schema changed — need to resync all ETFs")
-                needs_resync = True
+        reason = ""
 
-        if count < 10 or needs_resync:
-            logger.info("DB has %d ETFs — starting initial sync in background", count)
+        if count < 10:
+            needs_resync = True
+            reason = f"DB has only {count} ETFs"
+        else:
+            # 최근 업데이트 시각 확인 - 24시간 이상 지났으면 재sync
+            from sqlalchemy import func
+            latest = db.query(func.max(ETF.data_updated_at)).scalar()
+            if latest is None:
+                needs_resync = True
+                reason = "No data_updated_at found"
+            else:
+                # SQLite는 timezone-naive datetime을 반환할 수 있음
+                if latest.tzinfo is None:
+                    latest = latest.replace(tzinfo=timezone.utc)
+                age = datetime.now(timezone.utc) - latest
+                if age > timedelta(hours=24):
+                    needs_resync = True
+                    reason = f"Data is {age.days}d {age.seconds//3600}h old (last update: {latest})"
+
+        if needs_resync:
+            logger.info("Starting sync — reason: %s", reason)
             asyncio.ensure_future(run_full_sync())
         else:
-            logger.info("DB has %d ETFs — skipping initial sync", count)
+            logger.info("DB has %d ETFs, data is fresh — skipping initial sync", count)
     finally:
         db.close()
 
