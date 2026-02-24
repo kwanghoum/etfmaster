@@ -159,7 +159,7 @@ def compute_returns(tickers: list[str]) -> dict[str, dict]:
                         idx = series.index[series.index >= now - pd.Timedelta(days=days)]
                         if len(idx) > 0:
                             p = series.loc[idx[0]]
-                            r[key] = round(((current - p) / p) * 100, 2)
+                            r[key] = round(float(((current - p) / p) * 100), 2)
 
                     if r:
                         all_results[t] = r

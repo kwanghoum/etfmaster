@@ -19,15 +19,34 @@ import sys
 from datetime import datetime, timezone
 from pathlib import Path
 
-# backend/ 를 sys.path 에 추가해 app 모듈 임포트 가능하게 함
+# ── 1. DATABASE_URL 을 SSL 포함으로 정규화 (app 모듈 임포트 전에 수행) ──
+_db_url = os.environ.get("DATABASE_URL", "")
+if not _db_url:
+    print("ERROR: DATABASE_URL 환경변수가 설정되지 않았습니다.")
+    sys.exit(1)
+
+# postgresql:// → psycopg2 드라이버 명시, SSL + search_path 강제
+if _db_url.startswith("postgresql://") or _db_url.startswith("postgres://"):
+    _db_url = _db_url.replace("postgres://", "postgresql://", 1)
+    _sep = "&" if "?" in _db_url else "?"
+    if "sslmode" not in _db_url:
+        _db_url += f"{_sep}sslmode=require"
+        _sep = "&"
+    if "options" not in _db_url:
+        _db_url += f"{_sep}options=-c+search_path%3Dpublic"
+
+# app.config 가 os.environ 에서 읽으므로 미리 세팅
+os.environ["DATABASE_URL"] = _db_url
+
+# ── 2. backend/ 경로 추가 후 app 모듈 임포트 ──
 sys.path.insert(0, str(Path(__file__).parent.parent / "backend"))
 
-from sqlalchemy import create_engine, text
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session  # noqa: E402
 
-from app.models.etf import ETF, Base
-from app.services.etf_data_fetcher import compute_returns, fetch_etf_batch
-from app.services.etf_list_provider import fetch_etf_tickers
+from app.database import Base, SessionLocal, engine  # noqa: E402
+from app.models.etf import ETF  # noqa: E402
+from app.services.etf_data_fetcher import compute_returns, fetch_etf_batch  # noqa: E402
+from app.services.etf_list_provider import fetch_etf_tickers  # noqa: E402
 
 logging.basicConfig(
     level=logging.INFO,
@@ -35,43 +54,38 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-DATABASE_URL = os.environ.get("DATABASE_URL", "")
-SYNC_BATCH_SIZE = 50    # yfinance 요청 배치 크기
-BATCH_DELAY_SECONDS = 5  # 배치 간 딜레이 (rate limit 완화)
-DB_WRITE_EVERY = 200    # 몇 건마다 DB에 flush할지
+SYNC_BATCH_SIZE = 50     # yfinance 요청 배치 크기
+BATCH_DELAY_SECONDS = 5  # 배치 간 딜레이
+DB_WRITE_EVERY = 200     # 몇 건마다 DB flush 할지
+
+_ETF_COLS = {c.key for c in ETF.__table__.columns} - {"id", "created_at"}
 
 
 def upsert_batch(session: Session, records: list[dict]) -> int:
-    """ETF 데이터를 DB에 upsert. 업데이트 건수 반환."""
     count = 0
     for data in records:
         if not data.get("ticker"):
             continue
-        etf = session.query(ETF).filter(ETF.ticker == data["ticker"]).first()
+        row = {k: v for k, v in data.items() if k in _ETF_COLS}
+        etf = session.query(ETF).filter(ETF.ticker == row["ticker"]).first()
         if etf:
-            for k, v in data.items():
-                if v is not None and hasattr(ETF, k):
+            for k, v in row.items():
+                if v is not None:
                     setattr(etf, k, v)
         else:
-            filtered = {k: v for k, v in data.items() if hasattr(ETF, k)}
-            session.add(ETF(**filtered))
+            session.add(ETF(**row))
         count += 1
     return count
 
 
 async def main() -> None:
-    if not DATABASE_URL:
-        logger.error("DATABASE_URL 환경변수가 설정되지 않았습니다.")
+    # DB 연결 확인 및 테이블 생성
+    try:
+        Base.metadata.create_all(bind=engine)
+        logger.info("DB 연결 성공 (URL: %s)", _db_url.split("@")[-1])
+    except Exception as e:
+        logger.error("DB 연결 실패: %s", e)
         sys.exit(1)
-
-    # PostgreSQL 연결 (SSL 필수)
-    connect_args = {}
-    if DATABASE_URL.startswith("postgresql"):
-        connect_args = {"sslmode": "require"}
-
-    engine = create_engine(DATABASE_URL, connect_args=connect_args)
-    Base.metadata.create_all(bind=engine)
-    logger.info("DB 연결 성공")
 
     logger.info("ETF 티커 목록 가져오는 중...")
     tickers = await fetch_etf_tickers()
@@ -93,25 +107,31 @@ async def main() -> None:
                 data.update(returns[t])
             pending.append(data)
 
-        # DB_WRITE_EVERY 건마다 flush
         if len(pending) >= DB_WRITE_EVERY:
-            with Session(engine) as session:
-                n = upsert_batch(session, pending)
-                session.commit()
-            total_written += n
-            logger.info("DB 저장: %d건 (누적 %d건)", n, total_written)
+            try:
+                with SessionLocal() as session:
+                    n = upsert_batch(session, pending)
+                    session.commit()
+                total_written += n
+                logger.info("DB 저장: %d건 (누적 %d건)", n, total_written)
+            except Exception as e:
+                logger.error("DB 저장 실패: %s", e, exc_info=True)
+                sys.exit(1)
             pending = []
 
         if i + SYNC_BATCH_SIZE < len(tickers):
             await asyncio.sleep(BATCH_DELAY_SECONDS)
 
-    # 남은 데이터 저장
     if pending:
-        with Session(engine) as session:
-            n = upsert_batch(session, pending)
-            session.commit()
-        total_written += n
-        logger.info("DB 저장 (최종): %d건 (누적 %d건)", n, total_written)
+        try:
+            with SessionLocal() as session:
+                n = upsert_batch(session, pending)
+                session.commit()
+            total_written += n
+            logger.info("DB 저장 (최종): %d건 (누적 %d건)", n, total_written)
+        except Exception as e:
+            logger.error("DB 저장 실패: %s", e, exc_info=True)
+            sys.exit(1)
 
     logger.info("완료. 총 %d건 저장.", total_written)
 
