@@ -1,14 +1,18 @@
 import asyncio
-from typing import Literal
+from datetime import datetime
+from typing import Any, Literal
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Header, HTTPException, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
+from app.config import ADMIN_API_KEY
 from app.database import get_db
 from app.models.etf import ETF
 from app.schemas.etf import ETFListResponse, ETFResponse, FilterOptions, SyncStatus
 from app.services.etf_sync_service import run_full_sync
+
+_ETF_FIELDS = {c.key for c in ETF.__table__.columns} - {"id", "created_at"}
 
 router = APIRouter(prefix="/api")
 
@@ -95,3 +99,35 @@ def get_etf(ticker: str, db: Session = Depends(get_db)):
 async def trigger_sync():
     asyncio.ensure_future(run_full_sync())
     return SyncStatus(status="started", message="Sync started in background")
+
+
+@router.post("/admin/bulk-update")
+def bulk_update_etfs(
+    payload: list[dict[str, Any]],
+    x_admin_key: str = Header(...),
+    db: Session = Depends(get_db),
+):
+    if not ADMIN_API_KEY or x_admin_key != ADMIN_API_KEY:
+        raise HTTPException(status_code=403, detail="Invalid admin key")
+
+    updated = 0
+    for raw in payload:
+        # 허용된 컬럼만 추출
+        data = {k: v for k, v in raw.items() if k in _ETF_FIELDS}
+        if "ticker" not in data:
+            continue
+        # datetime 문자열 파싱
+        if isinstance(data.get("data_updated_at"), str):
+            data["data_updated_at"] = datetime.fromisoformat(data["data_updated_at"])
+
+        etf = db.query(ETF).filter(ETF.ticker == data["ticker"]).first()
+        if etf:
+            for k, v in data.items():
+                if v is not None:
+                    setattr(etf, k, v)
+        else:
+            db.add(ETF(**data))
+        updated += 1
+
+    db.commit()
+    return {"updated": updated}

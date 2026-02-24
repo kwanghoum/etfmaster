@@ -1,0 +1,31 @@
+name: ETF Data Sync
+
+on:
+  schedule:
+    # 매일 오전 6시 KST (= 전날 21:00 UTC)
+    - cron: "0 21 * * *"
+  workflow_dispatch:  # 수동 실행 가능
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360  # yfinance 전체 sync는 최대 6시간
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: backend/requirements.txt
+
+      - name: Install dependencies
+        run: pip install yfinance httpx pandas python-dotenv
+
+      - name: Run sync and push to Railway
+        env:
+          RAILWAY_URL: ${{ secrets.RAILWAY_URL }}
+          ADMIN_API_KEY: ${{ secrets.ADMIN_API_KEY }}
+        run: python scripts/sync_and_push.py
