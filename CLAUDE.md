@@ -7,10 +7,16 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ETF Master is a full-stack web application for browsing and analyzing US-listed ETFs (~4400+ ETFs). It features a real-time dashboard with sortable columns, search, and live data synchronization from financial APIs.
 
 **Tech Stack:**
-- **Backend:** Python FastAPI + SQLAlchemy + SQLite
+- **Backend (local dev only):** Python FastAPI + SQLAlchemy + SQLite
 - **Frontend:** Next.js 16 (App Router) + TypeScript + Tailwind CSS
 - **Data Sources:** NASDAQ API (ETF list), yfinance (ETF data)
 - **UI Libraries:** TanStack Table (sorting), TanStack Virtual (row virtualization), TanStack React Query (data fetching)
+
+**Production Deployment (free tier, see DEPLOYMENT_FREE.md):**
+- **Vercel:** Next.js frontend + read-only API via route handlers (`frontend/src/app/api/etfs/*`) querying PostgreSQL directly with `pg`
+- **Neon:** Free PostgreSQL database
+- **GitHub Actions:** Daily data sync (`.github/workflows/etf-sync.yml` → `scripts/sync_and_push.py` upserts to PostgreSQL, imports `backend/` modules)
+- The FastAPI backend is NOT deployed; it remains for local development. `frontend/src/lib/api.ts` targets `localhost:8000` in dev mode and same-origin `/api` in production (override with `NEXT_PUBLIC_API_URL`).
 
 ## Development Commands
 
