@@ -8,8 +8,9 @@ if DATABASE_URL.startswith("sqlite"):
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 else:
-    # PostgreSQL 사용 시
-    engine = create_engine(DATABASE_URL)
+    # PostgreSQL 사용 시. Neon 등 서버리스 DB는 유휴 연결을 수 분 만에 끊으므로
+    # pre_ping으로 죽은 연결을 감지해 자동 재연결한다.
+    engine = create_engine(DATABASE_URL, pool_pre_ping=True, pool_recycle=240)
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False)
 
